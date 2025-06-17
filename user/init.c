@@ -28,6 +28,8 @@ int main(void) {
             printf("init: fork failed\n");
             exit(1);
         }
+
+        // fork 第一个进程 sh
         if (pid == 0) {
             exec("sh", argv);
             printf("init: exec sh failed\n");

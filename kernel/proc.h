@@ -46,8 +46,8 @@ struct trapframe {
     /*  16 */ uint64 kernel_trap;   // usertrap()
     /*  24 */ uint64 epc;           // saved user program counter
     /*  32 */ uint64 kernel_hartid; // saved kernel tp
-    /*  40 */ uint64 ra;
-    /*  48 */ uint64 sp;
+    /*  40 */ uint64 ra;            // 返回地址
+    /*  48 */ uint64 sp;            // 栈指针
     /*  56 */ uint64 gp;
     /*  64 */ uint64 tp;
     /*  72 */ uint64 t0;
@@ -100,6 +100,7 @@ struct proc {
     uint64 sz;                   // Size of process memory (bytes)
     pagetable_t pagetable;       // User page table
     struct trapframe *trapframe; // data page for trampoline.S
+    struct usyscall *usyscall;   // 共享页面
     struct context context;      // swtch() here to run process
     struct file *ofile[NOFILE];  // Open files
     struct inode *cwd;           // Current directory

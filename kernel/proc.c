@@ -94,11 +94,15 @@ int allocpid() {
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
+// 负责从进程表中找到一个空闲的进程，并完成创建新进程所需的所有内核态初始化工作，
+// 包括分配 PID、设置trapframe、创建页表、初始化内核执行上下文等。
+// 分配成功 返回进程PCB
 static struct proc *allocproc(void) {
     struct proc *p;
 
     for (p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
+        // 找到空闲进程
         if (p->state == UNUSED) {
             goto found;
         } else {
@@ -108,17 +112,27 @@ static struct proc *allocproc(void) {
     return 0;
 
 found:
+    // 分配进程号 配置进程状态 
     p->pid = allocpid();
     p->state = USED;
 
     // Allocate a trapframe page.
+    // 分配一个陷阱帧物理页
     if ((p->trapframe = (struct trapframe *)kalloc()) == 0) {
         freeproc(p);
         release(&p->lock);
         return 0;
     }
 
+    // 分配一个共享物理页面
+    if ((p->usyscall = (struct usyscall *)kalloc()) == 0) {
+        freeproc(p);
+        release(&p->lock);
+        return 0;
+    }
+
     // An empty user page table.
+    // 建包含必要映射的页表：Trampoline页面映射, Trapframe页面映射, 内核共享页面映射
     p->pagetable = proc_pagetable(p);
     if (p->pagetable == 0) {
         freeproc(p);
@@ -128,10 +142,14 @@ found:
 
     // Set up new context to start executing at forkret,
     // which returns to user space.
+    // 初始化所有寄存器状态
     memset(&p->context, 0, sizeof(p->context));
+    // 设置返回地址(ra)
     p->context.ra = (uint64)forkret;
+    // 设置栈指针(sp)
     p->context.sp = p->kstack + PGSIZE;
-
+    // 存储 pid 号
+    p->usyscall->pid = p->pid;
     return p;
 }
 
@@ -139,6 +157,9 @@ found:
 // including user pages.
 // p->lock must be held.
 static void freeproc(struct proc *p) {
+    // 释放共享页面
+    if (p->usyscall)
+        kfree((void *)p->usyscall);
     if (p->trapframe)
         kfree((void *)p->trapframe);
     p->trapframe = 0;
@@ -157,10 +178,16 @@ static void freeproc(struct proc *p) {
 
 // Create a user page table for a given process, with no user memory,
 // but with trampoline and trapframe pages.
+// 为指定进程创建一个用户页表, 页表初始时不包含任何用户内存映射
+// 预先设置了 trampoline页面（用于系统调用和中断的内核-用户态切换）
+// trapframe页面（用于保存/恢复用户态寄存器状态）
+// 内核共享页面 (内核与用户指向同一物理页面)
+
 pagetable_t proc_pagetable(struct proc *p) {
     pagetable_t pagetable;
 
     // An empty page table.
+    // 分配并初始化一个新的页表
     pagetable = uvmcreate();
     if (pagetable == 0)
         return 0;
@@ -179,7 +206,18 @@ pagetable_t proc_pagetable(struct proc *p) {
     // trampoline.S.
     if (mappages(pagetable, TRAPFRAME, PGSIZE, (uint64)(p->trapframe),
                  PTE_R | PTE_W) < 0) {
+        // 取消 trampoline 的映射
         uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+        uvmfree(pagetable, 0);
+        return 0;
+    }
+
+    // 创建共享页面 虚拟地址 与 物理地址映射
+    // 标志 用户可读, 可访问
+    if (mappages(pagetable, USYSCALL, PGSIZE, (uint64)p->usyscall, PTE_R | PTE_U) < 0) {
+        // 取消 USYSCALL 的映射
+        uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+        uvmunmap(pagetable, USYSCALL, 1, 0);
         uvmfree(pagetable, 0);
         return 0;
     }
@@ -192,6 +230,8 @@ pagetable_t proc_pagetable(struct proc *p) {
 void proc_freepagetable(pagetable_t pagetable, uint64 sz) {
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmunmap(pagetable, TRAPFRAME, 1, 0);
+    // 移除共享页面
+    uvmunmap(pagetable, USYSCALL, 1, 0);
     uvmfree(pagetable, sz);
 }
 
@@ -252,28 +292,35 @@ int growproc(int n) {
 int fork(void) {
     int i, pid;
     struct proc *np;
+    // 获取父进程 PCB 指针
     struct proc *p = myproc();
 
     // Allocate process.
+    // 为子进程 分配一个 PCB
     if ((np = allocproc()) == 0) {
         return -1;
     }
 
     // Copy user memory from parent to child.
+    // 将父进程的用户内存空间复制到子进程
     if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0) {
         freeproc(np);
         release(&np->lock);
         return -1;
     }
+    // 设置子进程的内存大小
     np->sz = p->sz;
 
     // copy saved user registers.
+    // 复制父进程的所有用户寄存器状态到子进程
     *(np->trapframe) = *(p->trapframe);
 
     // Cause fork to return 0 in the child.
+    // 将子进程的a0寄存器(返回值)设为0
     np->trapframe->a0 = 0;
 
     // increment reference counts on open file descriptors.
+    // 文件描述符和工作目录复制
     for (i = 0; i < NOFILE; i++)
         if (p->ofile[i])
             np->ofile[i] = filedup(p->ofile[i]);
@@ -281,10 +328,12 @@ int fork(void) {
 
     safestrcpy(np->name, p->name, sizeof(p->name));
 
+    // 父进程保存子进程pid
     pid = np->pid;
 
     release(&np->lock);
 
+    // 配置 子进程的 parent state
     acquire(&wait_lock);
     np->parent = p;
     release(&wait_lock);

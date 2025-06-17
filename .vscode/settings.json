@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "*.cu": "cuda",
+        "BUILD": "code-text-binary",
+        "proc.h": "c",
+        "memlayout.h": "c",
+        "riscv.h": "c"
+    }
+}

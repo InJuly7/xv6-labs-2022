@@ -160,6 +160,7 @@ int main(void) {
             continue;
         }
         if (fork1() == 0)
+            // 子进程执行命令
             runcmd(parsecmd(buf));
         wait(0);
     }

@@ -53,8 +53,16 @@ uint64 sys_sleep(void) {
 }
 
 #ifdef LAB_PGTBL
+//  系统调用实现
+// int pgaccess(void *base, int len, void *mask);
 int sys_pgaccess(void) {
-    // lab pgtbl: your code here.
+    uint64 base;
+    int len;
+    uint64 mask;
+    argaddr(0, &base);
+    argint(1, &len);
+    argaddr(2, &mask);
+    
     return 0;
 }
 #endif

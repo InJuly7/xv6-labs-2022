@@ -28,7 +28,7 @@ pagetable_t kvmmake(void) {
     // virtio mmio disk interface
     kvmmap(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
-    // PLIC
+    // PLIC 中断控制器 - 用于中断处理
     kvmmap(kpgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 
     // map kernel text executable and read-only.
@@ -40,9 +40,11 @@ pagetable_t kvmmake(void) {
 
     // map the trampoline for trap entry/exit to
     // the highest virtual address in the kernel.
+    // 跳板页面：用于用户态/内核态切换
     kvmmap(kpgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 
     // allocate and map a kernel stack for each process.
+    // 进程内核栈
     proc_mapstacks(kpgtbl);
 
     return kpgtbl;
@@ -79,17 +81,25 @@ pte_t *walk(pagetable_t pagetable, uint64 va, int alloc) {
     if (va >= MAXVA)
         panic("walk");
 
+    // 从第二级页表 向下遍历
     for (int level = 2; level > 0; level--) {
+        // 提取虚拟地址 在指定级别的页表的pte指针
         pte_t *pte = &pagetable[PX(level, va)];
         if (*pte & PTE_V) {
+            // pte 对应的 下一级 页表地址
             pagetable = (pagetable_t)PTE2PA(*pte);
-        } else {
+        }
+        // 分配 
+        else {
+            // 分配新页表 且 内存不足 退出
             if (!alloc || (pagetable = (pde_t *)kalloc()) == 0)
                 return 0;
+            // 初始化新页表, 以及页表项符号位
             memset(pagetable, 0, PGSIZE);
             *pte = PA2PTE(pagetable) | PTE_V;
         }
     }
+    // 返回一级页表 页表项指针 
     return &pagetable[PX(0, va)];
 }
 
@@ -134,13 +144,18 @@ int mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa,
     if (size == 0)
         panic("mappages: size");
 
+    // 将地址向下对齐到页边界（4KB对齐）。
     a = PGROUNDDOWN(va);
     last = PGROUNDDOWN(va + size - 1);
+
     for (;;) {
+        // 获得 虚拟页面 对应的 三级页表对应的 pte 地址, 中间页表不存在就创建它们
         if ((pte = walk(pagetable, a, 1)) == 0)
             return -1;
+        // 校验 pte 是否有效
         if (*pte & PTE_V)
             panic("mappages: remap");
+        // 配置 符号位
         *pte = PA2PTE(pa) | perm | PTE_V;
         if (a == last)
             break;
@@ -177,6 +192,7 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free) {
 
 // create an empty user page table.
 // returns 0 if out of memory.
+// 创建一个空的页表
 pagetable_t uvmcreate() {
     pagetable_t pagetable;
     pagetable = (pagetable_t)kalloc();
@@ -399,4 +415,23 @@ int copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max) {
     } else {
         return -1;
     }
+}
+
+
+// 打印页表 2 --> 1 --> 0
+void vmprint(pagetable_t pagetable, int level) {
+    char *dot[] = {" .. .. ..", " .. ..", " .."};
+    
+    if (level < 0 || level > 2) return;
+    if ((uint64)pagetable >= MAXVA) return;
+    
+    int i = 0;
+    for(i = 0; i < 512; i++) {
+        pte_t *pte = &pagetable[i];
+        if(*pte & PTE_V) {
+            printf("%s%d: pte %p pa %p\n", dot[level], i, *pte, PTE2PA(*pte));
+            vmprint((pagetable_t)PTE2PA(*pte), level - 1);
+        }
+    }
+    
 }

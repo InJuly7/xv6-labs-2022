@@ -11,18 +11,20 @@
 
 void freerange(void *pa_start, void *pa_end);
 
-extern char end[]; // first address after kernel.
+// kernel data 位置
+extern char end[]; // first address after kernel. 
                    // defined by kernel.ld.
 
 struct run {
-    struct run *next;
+      struct run *next;
 };
 
 struct {
-    struct spinlock lock;
-    struct run *freelist;
+      struct spinlock lock;
+      struct run *freelist;
 } kmem;
 
+// 将系统中未被内核代码占用的物理内存初始化为"空闲状态"
 void kinit() {
     initlock(&kmem.lock, "kmem");
     freerange(end, (void *)PHYSTOP);
@@ -30,7 +32,9 @@ void kinit() {
 
 void freerange(void *pa_start, void *pa_end) {
     char *p;
+    // 向上对齐到页边界
     p = (char *)PGROUNDUP((uint64)pa_start);
+    // 将  [pa_start]^ ~ pa_end释放 插入到内核空闲链表中
     for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
         kfree(p);
 }

@@ -8,8 +8,8 @@ void ugetpid_test();
 void pgaccess_test();
 
 int main(int argc, char *argv[]) {
-    ugetpid_test();
-    pgaccess_test();
+    ugetpid_test(); // 测试用户态获取PID (lab3-1)
+    pgaccess_test(); // 测试页面访问追踪 (lab3-2)
     printf("pgtbltest: all tests succeeded\n");
     exit(0);
 }

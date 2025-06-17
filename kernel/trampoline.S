@@ -9,6 +9,13 @@
         # kernel.ld causes this code to start at 
         # a page boundary.
         #
+        # 处理从用户空间到内核陷阱的底层代码，
+        # 以及从内核返回用户空间的代码。
+        #
+        # 内核将包含此代码的页面映射到
+        # 用户空间和内核空间的相同虚拟地址(TRAMPOLINE)，
+        # 这样当切换页表时代码能够继续工作。
+        # kernel.ld 确保此代码从页边界开始。
 
 #include "riscv.h"
 #include "memlayout.h"
@@ -25,17 +32,29 @@ uservec:
         # in supervisor mode, but with a
         # user page table.
         #
+        # trap.c 设置 stvec 指向这里，所以
+        # 来自用户空间的陷阱从这里开始，
+        # 处于监管者模式，但仍使用用户页表。
 
         # save user a0 in sscratch so
         # a0 can be used to get at TRAPFRAME.
+        # 将用户的a0保存到sscratch中，
+        # 这样a0就可以用来访问TRAPFRAME。
+        
         csrw sscratch, a0
 
         # each process has a separate p->trapframe memory area,
         # but it's mapped to the same virtual address
         # (TRAPFRAME) in every process's user page table.
+        # 每个进程都有独立的p->trapframe内存区域，
+        # 但在每个进程的用户页表中都映射到
+        # 相同的虚拟地址(TRAPFRAME)。
+        
         li a0, TRAPFRAME
         
         # save the user registers in TRAPFRAME
+        # 将用户寄存器保存到TRAPFRAME中
+
         sd ra, 40(a0)
         sd sp, 48(a0)
         sd gp, 56(a0)
@@ -68,30 +87,38 @@ uservec:
         sd t6, 280(a0)
 
 	# save the user a0 in p->trapframe->a0
+        # 将用户的a0保存到p->trapframe->a0中
         csrr t0, sscratch
         sd t0, 112(a0)
-
+        
         # initialize kernel stack pointer, from p->trapframe->kernel_sp
+        # 从p->trapframe->kernel_sp初始化内核栈指针
         ld sp, 8(a0)
-
+        
         # make tp hold the current hartid, from p->trapframe->kernel_hartid
+        # 让tp保存当前hartid，从p->trapframe->kernel_hartid
         ld tp, 32(a0)
 
         # load the address of usertrap(), from p->trapframe->kernel_trap
+        # 加载usertrap()的地址，从p->trapframe->kernel_trap
         ld t0, 16(a0)
 
 
         # fetch the kernel page table address, from p->trapframe->kernel_satp.
+        # 从p->trapframe->kernel_satp获取内核页表地址
         ld t1, 0(a0)
 
         # wait for any previous memory operations to complete, so that
         # they use the user page table.
+        # 等待之前的内存操作完成，确保它们使用用户页表
         sfence.vma zero, zero
 
         # install the kernel page table.
+        # 安装内核页表
         csrw satp, t1
 
         # flush now-stale user entries from the TLB.
+        # 刷新TLB中现在过时的用户条目
         sfence.vma zero, zero
 
         # jump to usertrap(), which does not return
