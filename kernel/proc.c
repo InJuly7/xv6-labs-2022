@@ -667,3 +667,26 @@ void procdump(void) {
         printf("\n");
     }
 }
+
+
+int pgaccess(void *base, int len, void *mask) {
+    if(len > 32) return -1;
+    uint32 temp_mask = 0;
+    struct proc *p = myproc();
+
+    for(int i = 0; i < len; i++) {
+        // 计算页面虚拟地址
+        uint64 va = (uint64)base + i * PGSIZE;
+        // 不分配新页面
+        pte_t *pte = walk(p->pagetable, va, 0);
+        if(pte && (*pte & PTE_V) && (*pte & PTE_A)) {
+            temp_mask |= (1 << i);
+            *pte &= ~PTE_A;
+        }
+    }
+    
+    // 复制回 用户空间
+    if(copyout(p->pagetable, (uint64)mask, (char *)&temp_mask, sizeof(uint32)) < 0) return 1;
+    return 0;
+    
+}

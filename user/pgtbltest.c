@@ -9,7 +9,7 @@ void pgaccess_test();
 
 int main(int argc, char *argv[]) {
     ugetpid_test(); // 测试用户态获取PID (lab3-1)
-    pgaccess_test(); // 测试页面访问追踪 (lab3-2)
+    pgaccess_test(); // 测试页面访问追踪 (lab3-3)
     printf("pgtbltest: all tests succeeded\n");
     exit(0);
 }
@@ -21,6 +21,7 @@ void err(char *why) {
     exit(1);
 }
 
+// 测试 ugetpid() 系统调用是否与 getpid() 返回相同结果
 void ugetpid_test() {
     int i;
 
@@ -35,6 +36,7 @@ void ugetpid_test() {
                 exit(1);
             continue;
         }
+        // 子进程执行：比较两个获取PID的系统调用结果
         if (getpid() != ugetpid())
             err("missmatched PID");
         exit(0);
@@ -47,14 +49,26 @@ void pgaccess_test() {
     unsigned int abits;
     printf("pgaccess_test starting\n");
     testname = "pgaccess_test";
+    // 分配32个页面的内存
     buf = malloc(32 * PGSIZE);
+
+    // 第一次调用pgaccess，此时页面未被访问
+    // 起始虚拟地址
+    // 要检查的连续页面数量（不是整个地址空间）
+    // 返回这32个页面的访问位掩码
     if (pgaccess(buf, 32, &abits) < 0)
         err("pgaccess failed");
+    
+    // 访问特定页面
     buf[PGSIZE * 1] += 1;
     buf[PGSIZE * 2] += 1;
     buf[PGSIZE * 30] += 1;
+
+    // 第二次调用pgaccess，检查访问位
     if (pgaccess(buf, 32, &abits) < 0)
         err("pgaccess failed");
+
+    // 验证返回的访问位是否正确
     if (abits != ((1 << 1) | (1 << 2) | (1 << 30)))
         err("incorrect access bits set");
     free(buf);
