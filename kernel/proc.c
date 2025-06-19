@@ -47,6 +47,7 @@ void procinit(void) {
 
     initlock(&pid_lock, "nextpid");
     initlock(&wait_lock, "wait_lock");
+    // 初始化 进程表, 内核栈(每个用户进程有独自kstack)
     for (p = proc; p < &proc[NPROC]; p++) {
         initlock(&p->lock, "proc");
         p->state = UNUSED;
