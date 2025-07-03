@@ -45,6 +45,7 @@ void test0() {
     sigalarm(2, periodic);
     for (i = 0; i < 1000 * 500000; i++) {
         if ((i % 1000000) == 0)
+            // 状态提示符号或者调试信息, 用文件标识符2写入
             write(2, ".", 1);
         if (count > 0)
             break;
@@ -165,12 +166,13 @@ void test3() {
     sigalarm(1, dummy_handler);
     printf("test3 start\n");
 
-    asm volatile("lui a5, 0");
-    asm volatile("addi a0, a5, 0xac" : : : "a0");
+    asm volatile("lui a5, 0"); // a5 = 0
+    asm volatile("addi a0, a5, 0xac" : : : "a0"); // a0 = a5 + 0xac
     for (int i = 0; i < 500000000; i++)
         ;
     asm volatile("mv %0, a0" : "=r"(a0));
-
+    printf("%p\n", a0);
+    // 验证a0的值是否等于 0xac
     if (a0 != 0xac)
         printf("test3 failed: register a0 changed\n");
     else
