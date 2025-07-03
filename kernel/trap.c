@@ -28,32 +28,34 @@ void trapinithart(void) { w_stvec((uint64)kernelvec); }
 void usertrap(void) {
     int which_dev = 0;
 
+    // 判断 trap是来自于用户空间还是内核空间 $sstatus
     if ((r_sstatus() & SSTATUS_SPP) != 0)
         panic("usertrap: not from user mode");
 
     // send interrupts and exceptions to kerneltrap(),
     // since we're now in the kernel.
-    w_stvec((uint64)kernelvec);
+    w_stvec((uint64)kernelvec); // $stvec 内核空间 trap 处理代码的位置
 
-    struct proc *p = myproc();
+    struct proc *p = myproc(); // $tp
 
     // save user program counter.
-    p->trapframe->epc = r_sepc();
+    p->trapframe->epc = r_sepc(); // $spec
 
+    // $scause 判断 进入usertrap原因 8: 系统调用
     if (r_scause() == 8) {
         // system call
-
+        // 检查用户进程是否被杀掉
         if (killed(p))
             exit(-1);
 
         // sepc points to the ecall instruction,
         // but we want to return to the next instruction.
+        // PC 恢复为下一条指令 ecall之后的一条指令
         p->trapframe->epc += 4;
 
         // an interrupt will change sepc, scause, and sstatus,
         // so enable only now that we're done with those registers.
-        intr_on();
-
+        intr_on(); // 有些系统调用需要许多时间处理, 使能中断 
         syscall();
     } else if ((which_dev = devintr()) != 0) {
         // ok
@@ -82,17 +84,17 @@ void usertrapret(void) {
     // we're about to switch the destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
-    intr_off();
+    intr_off(); // 关闭中断 防止更新 $stvec 寄存器时候 内核出错
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
     uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline);
-    w_stvec(trampoline_uservec);
+    w_stvec(trampoline_uservec); // kernelvec --> uservec
 
     // set up trapframe values that uservec will need when
     // the process next traps into the kernel.
     p->trapframe->kernel_satp = r_satp();         // kernel page table
     p->trapframe->kernel_sp = p->kstack + PGSIZE; // process's kernel stack
-    p->trapframe->kernel_trap = (uint64)usertrap;
+    p->trapframe->kernel_trap = (uint64)usertrap; 
     p->trapframe->kernel_hartid = r_tp(); // hartid for cpuid()
 
     // set up the registers that trampoline.S's sret will use

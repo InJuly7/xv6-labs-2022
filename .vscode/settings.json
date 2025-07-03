@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.cu": "cuda",
+        "BUILD": "code-text-binary",
+        "random": "c"
+    }
+}
