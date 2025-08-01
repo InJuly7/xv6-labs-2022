@@ -17,6 +17,7 @@ void initlock(struct spinlock *lk, char *name) {
 // Acquire the lock.
 // Loops (spins) until the lock is acquired.
 void acquire(struct spinlock *lk) {
+    // 关闭中断
     push_off(); // disable interrupts to avoid deadlock.
     if (holding(lk))
         panic("acquire");
@@ -62,7 +63,7 @@ void release(struct spinlock *lk) {
     //   amoswap.w zero, zero, (s1)
     __sync_lock_release(&lk->locked);
 
-    pop_off();
+    pop_off(); // 开启中断
 }
 
 // Check whether this cpu is holding the lock.

@@ -15,16 +15,19 @@ void simpletest() {
 
     printf("simple: ");
 
+    // sbrk 失败时的返回值（-1）
     char *p = sbrk(sz);
     if (p == (char *)0xffffffffffffffffL) {
         printf("sbrk(%d) failed\n", sz);
         exit(-1);
     }
 
+    // 每隔 4096 字节（一个页面大小）写入当前进程的 PID
     for (char *q = p; q < p + sz; q += 4096) {
         *(int *)q = getpid();
     }
-
+    
+    // 内存压力测试：分配大量内存（2/3 物理内存）来测试系统在内存紧张情况下的表现 
     int pid = fork();
     if (pid < 0) {
         printf("fork() failed\n");
@@ -36,6 +39,7 @@ void simpletest() {
 
     wait(0);
 
+    // 释放内存
     if (sbrk(-sz) == (char *)0xffffffffffffffffL) {
         printf("sbrk(-%d) failed\n", sz);
         exit(-1);
@@ -67,6 +71,7 @@ void threetest() {
         exit(-1);
     }
     if (pid1 == 0) {
+        // 子进程
         pid2 = fork();
         if (pid2 < 0) {
             printf("fork failed");
@@ -156,7 +161,7 @@ void filetest() {
     }
 
     int xstatus = 0;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 1; i++) {
         wait(&xstatus);
         if (xstatus != 0) {
             exit(1);

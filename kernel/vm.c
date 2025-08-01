@@ -15,6 +15,60 @@ extern char etext[]; // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+int cowpage(pagetable_t pagetable, uint64 va) {
+    if (va >= MAXVA)
+        return -1;
+    pte_t *pte = walk(pagetable, va, 0);
+    if (pte == 0)
+        return -1;
+    if ((*pte & PTE_V) == 0)
+        return -1;
+    return (*pte & PTE_F ? 0 : -1);
+}
+
+void* cowalloc(pagetable_t pagetable, uint64 va) {
+    uint64 pa;
+    pte_t *pte;
+
+    if (va >= MAXVA)
+        return 0;
+    va = PGROUNDDOWN(va);
+    pte = walk(pagetable, va, 0);
+    if (pte == 0)
+        return 0;
+    if ((*pte & PTE_V) == 0)
+        return 0;
+    pa = PTE2PA(*pte);
+    if (pa == 0)
+        return 0;
+    if(cowpage(pagetable, va))
+        return 0;
+
+    // 只有一个引用，删除写时复制位, 恢复写权限
+    if(getrefc((void*)pa) == 1) {
+        *pte &= ~PTE_F;
+        *pte |= PTE_W;
+        return (void*)pa;
+    } else {
+        // 多个进程对物理内存存在引用
+        // 需要分配新的页面，并拷贝旧页面的内容
+        char* mem = kalloc();
+        memmove(mem, (char*)pa, PGSIZE);
+        // 清除PTE_V，否则在mappagges中会判定为remap
+        *pte &= ~PTE_V;
+        // 为新页面添加映射
+        if(mappages(pagetable, va, PGSIZE, (uint64)mem, (PTE_FLAGS(*pte) | PTE_W) & ~PTE_F) != 0) {
+            kfree(mem);
+            *pte |= PTE_V;
+            return 0;
+        }
+
+        // 将原来的物理内存引用计数减1
+        kfree((char*)PGROUNDDOWN(pa));
+        return mem;
+    }
+}
+
 // Make a direct-map page table for the kernel.
 pagetable_t kvmmake(void) {
     pagetable_t kpgtbl;
@@ -279,26 +333,41 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz) {
     pte_t *pte;
     uint64 pa, i;
     uint flags;
-    char *mem;
+    // char *mem;
 
     for (i = 0; i < sz; i += PGSIZE) {
         if ((pte = walk(old, i, 0)) == 0)
             panic("uvmcopy: pte should exist");
         if ((*pte & PTE_V) == 0)
             panic("uvmcopy: page not present");
+
         pa = PTE2PA(*pte);
-        flags = PTE_FLAGS(*pte);
-        if ((mem = kalloc()) == 0)
-            goto err;
-        memmove(mem, (char *)pa, PGSIZE);
-        if (mappages(new, i, PGSIZE, (uint64)mem, flags) != 0) {
-            kfree(mem);
+        // 仅对可写的页面 设置 COW 标记
+        if (*pte & PTE_W) {
+            *pte |= PTE_F;
+            *pte &= ~PTE_W;
+        }
+        flags = PTE_FLAGS(*pte); 
+        flags = (flags | PTE_F) & (~PTE_W);
+        if (mappages(new, i, PGSIZE, pa, flags) != 0) {
             goto err;
         }
+
+        // 页面引用数加 1
+        refcinc((void *)pa);
+        
+        // if ((mem = kalloc()) == 0)
+        //     goto err;
+        // memmove(mem, (char *)pa, PGSIZE);
+        // if (mappages(new, i, PGSIZE, (uint64)mem, flags) != 0) {
+        //     kfree(mem);
+        //     goto err;
+        // }
     }
     return 0;
 
 err:
+    panic("uvmcopy error");
     uvmunmap(new, 0, i / PGSIZE, 1);
     return -1;
 }
@@ -322,6 +391,12 @@ int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len) {
 
     while (len > 0) {
         va0 = PGROUNDDOWN(dstva);
+        // 处理COW页面的情况
+        if (cowpage(pagetable, va0) == 0) {
+            // 更换目标物理地址
+            pa0 = (uint64)cowalloc(pagetable, va0);
+        }
+            
         pa0 = walkaddr(pagetable, va0);
         if (pa0 == 0)
             return -1;

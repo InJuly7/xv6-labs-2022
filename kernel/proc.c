@@ -407,6 +407,7 @@ int wait(uint64 addr) {
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// 在调度器线程的context下执行schedulder函数中
 void scheduler(void) {
     struct proc *p;
     struct cpu *c = mycpu();
@@ -424,6 +425,7 @@ void scheduler(void) {
                 // before jumping back to us.
                 p->state = RUNNING;
                 c->proc = p;
+                // 调度器线程切换到内核线程
                 swtch(&c->context, &p->context);
 
                 // Process is done running for now.
@@ -456,6 +458,7 @@ void sched(void) {
         panic("sched interruptible");
 
     intena = mycpu()->intena;
+    // 恢复 之前为 调度器线程保存的寄存器和 栈指针
     swtch(&p->context, &mycpu()->context);
     mycpu()->intena = intena;
 }

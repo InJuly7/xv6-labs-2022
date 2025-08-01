@@ -57,6 +57,14 @@ void usertrap(void) {
         syscall();
     } else if ((which_dev = devintr()) != 0) {
         // ok
+    } else if (r_scause() == 13 || r_scause() == 15) {
+        uint64 fault_va = r_stval();
+        // 判断 错误页面的虚拟地址是否是栈溢出保护页 或者 是否超出 地址空间上限
+        if (fault_va <= PGSIZE || fault_va >= p->sz || (fault_va <= PGROUNDDOWN(p->trapframe->sp) && fault_va >= PGROUNDDOWN(p->trapframe->sp) - PGSIZE)) {
+            p->killed = 1;
+        } else if (cowpage(p->pagetable, fault_va) != 0 || cowalloc(p->pagetable, PGROUNDDOWN(fault_va)) == 0) {
+            p->killed = 1;
+        }
     } else {
         printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
         printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
@@ -182,7 +190,9 @@ int devintr() {
             plic_complete(irq);
 
         return 1;
-    } else if (scause == 0x8000000000000001L) {
+    }
+    // 响应定时器中断
+    else if (scause == 0x8000000000000001L) {
         // software interrupt from a machine-mode timer interrupt,
         // forwarded by timervec in kernelvec.S.
 

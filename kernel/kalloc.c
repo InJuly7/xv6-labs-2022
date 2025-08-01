@@ -9,6 +9,7 @@
 #include "riscv.h"
 #include "defs.h"
 
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -23,7 +24,35 @@ struct {
     struct run *freelist;
 } kmem;
 
+// struct to maintain the ref counts
+struct refc_stru{
+    struct spinlock lock;
+    int count[PGROUNDUP(PHYSTOP) / PGSIZE];
+}refc;
+
+void refcinc(void *pa) {
+    acquire(&refc.lock);
+    refc.count[PA2IDX(pa)]++;
+    release(&refc.lock);
+}
+
+int refcdec(void *pa) {
+    acquire(&refc.lock);
+    refc.count[PA2IDX(pa)]--;
+    release(&refc.lock);
+    return refc.count[PA2IDX(pa)];
+}
+
+void refcset(void *pa, int cnt) {
+    acquire(&refc.lock);
+    refc.count[PA2IDX(pa)] = cnt;
+    release(&refc.lock);
+}
+
+int getrefc(void *pa) {return refc.count[PA2IDX(pa)]; }
+
 void kinit() {
+    initlock(&refc.lock, "refc");
     initlock(&kmem.lock, "kmem");
     freerange(end, (void *)PHYSTOP);
 }
@@ -31,8 +60,10 @@ void kinit() {
 void freerange(void *pa_start, void *pa_end) {
     char *p;
     p = (char *)PGROUNDUP((uint64)pa_start);
-    for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
+    for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE) {
+        refcset(p, 1);
         kfree(p);
+    }
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -45,6 +76,10 @@ void kfree(void *pa) {
     if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
         panic("kfree");
 
+    if (refcdec(pa) > 0)
+        return;
+
+    // 如果引用数为0, 释放页面
     // Fill with junk to catch dangling refs.
     memset(pa, 1, PGSIZE);
 
@@ -64,11 +99,14 @@ void *kalloc(void) {
 
     acquire(&kmem.lock);
     r = kmem.freelist;
-    if (r)
+    if (r) {
         kmem.freelist = r->next;
+        refcset((void *)r, 1); // 引用数加1
+    }
     release(&kmem.lock);
 
-    if (r)
+    if (r) {
         memset((char *)r, 5, PGSIZE); // fill with junk
+    }
     return (void *)r;
 }
