@@ -11,11 +11,12 @@
 struct entry {
     int key;
     int value;
-    struct entry *next;
+    struct entry *next; // 链表指针 解决哈希冲突
 };
 struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
+pthread_mutex_t lock[NBUCKET] = { PTHREAD_MUTEX_INITIALIZER }; // 每个散列桶一把锁
 
 double now() {
     struct timeval tv;
@@ -24,6 +25,7 @@ double now() {
 }
 
 static void insert(int key, int value, struct entry **p, struct entry *n) {
+    // 头插法
     struct entry *e = malloc(sizeof(struct entry));
     e->key = key;
     e->value = value;
@@ -44,8 +46,10 @@ static void put(int key, int value) {
         // update the existing key.
         e->value = value;
     } else {
+        pthread_mutex_lock(&lock[i]);
         // the new is new.
         insert(key, value, &table[i], table[i]);
+        pthread_mutex_unlock(&lock[i]);
     }
 }
 
@@ -102,9 +106,7 @@ int main(int argc, char *argv[]) {
         keys[i] = random();
     }
 
-    //
     // first the puts
-    //
     t0 = now();
     for (int i = 0; i < nthread; i++) {
         assert(pthread_create(&tha[i], NULL, put_thread, (void *)(long)i) == 0);
@@ -117,9 +119,7 @@ int main(int argc, char *argv[]) {
     printf("%d puts, %.3f seconds, %.0f puts/second\n", NKEYS, t1 - t0,
            NKEYS / (t1 - t0));
 
-    //
     // now the gets
-    //
     t0 = now();
     for (int i = 0; i < nthread; i++) {
         assert(pthread_create(&tha[i], NULL, get_thread, (void *)(long)i) == 0);

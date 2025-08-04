@@ -10,23 +10,36 @@ static int round = 0;
 struct barrier {
     pthread_mutex_t barrier_mutex;
     pthread_cond_t barrier_cond;
-    int nthread; // Number of threads that have reached this round of the
-                 // barrier
-    int round;   // Barrier round
+    int nthread; // 到达同步点的线程数
+    int round;   // 达到同步点的次数
 } bstate;
 
+// 初始化 锁, 条件变量
 static void barrier_init(void) {
     assert(pthread_mutex_init(&bstate.barrier_mutex, NULL) == 0);
     assert(pthread_cond_init(&bstate.barrier_cond, NULL) == 0);
     bstate.nthread = 0;
 }
 
+// 所有线程都到达同步点, 才会进入下一轮
 static void barrier() {
-    // YOUR CODE HERE
-    //
-    // Block until all threads have called barrier() and
-    // then increment bstate.round.
-    //
+
+    // 申请持有锁
+    pthread_mutex_lock(&bstate.barrier_mutex);
+    bstate.nthread++;
+    // 当最后一个线程到达, 唤醒其余等待线程
+    if (bstate.nthread == nthread) {
+        bstate.round++; // 进入下一轮
+        bstate.nthread = 0; // 重置计数器
+        // 唤醒所有在条件变量 cond 上睡眠的线程
+        pthread_cond_broadcast(&bstate.barrier_cond);
+    } else {
+        // 调用pthread_cond_wait时，必须持有锁状态
+        // 在条件变量 cond 上睡眠，释放锁 mutex，唤醒时重新获取锁
+        pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+    }
+    // 释放锁
+    pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
 static void *thread(void *xa) {
@@ -38,9 +51,9 @@ static void *thread(void *xa) {
         int t = bstate.round;
         assert(i == t);
         barrier();
+        // 等待其余线程被唤醒
         usleep(random() % 100);
     }
-
     return 0;
 }
 

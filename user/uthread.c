@@ -10,9 +10,31 @@
 #define STACK_SIZE 8192
 #define MAX_THREAD 4
 
+
+// 用户线程的上下文结构体
+struct tcontext {
+    uint64 ra;
+    uint64 sp;
+
+    // callee-saved
+    uint64 s0;
+    uint64 s1;
+    uint64 s2;
+    uint64 s3;
+    uint64 s4;
+    uint64 s5;
+    uint64 s6;
+    uint64 s7;
+    uint64 s8;
+    uint64 s9;
+    uint64 s10;
+    uint64 s11;
+};
+
 struct thread {
     char stack[STACK_SIZE]; /* the thread's stack */
     int state;              /* FREE, RUNNING, RUNNABLE */
+    struct tcontext context;            /* 用户进程上下文 */
 };
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
@@ -24,16 +46,19 @@ void thread_init(void) {
     // can save thread 0's state.  thread_schedule() won't run the main thread
     // ever again, because its state is set to RUNNING, and thread_schedule()
     // selects a RUNNABLE thread.
-    current_thread = &all_thread[0];
+    current_thread = &all_thread[0]; // main函数为线程0
     current_thread->state = RUNNING;
 }
 
+// Round-Robin算法
 void thread_schedule(void) {
     struct thread *t, *next_thread;
 
     /* Find another runnable thread. */
     next_thread = 0;
     t = current_thread + 1;
+    // 寻找下一个可运行线程（round-robin算法
+    // 按顺序轮流调度线程
     for (int i = 0; i < MAX_THREAD; i++) {
         if (t >= all_thread + MAX_THREAD)
             t = all_thread;
@@ -48,7 +73,7 @@ void thread_schedule(void) {
         printf("thread_schedule: no runnable threads\n");
         exit(-1);
     }
-
+    // 执行上下文切换
     if (current_thread != next_thread) { /* switch threads?  */
         next_thread->state = RUNNING;
         t = current_thread;
@@ -57,6 +82,8 @@ void thread_schedule(void) {
          * Invoke thread_switch to switch from t to next_thread:
          * thread_switch(??, ??);
          */
+        // 保存当前上下文，恢复目标上下文
+        thread_switch((uint64)&t->context, (uint64)&current_thread->context);
     } else
         next_thread = 0;
 }
@@ -69,7 +96,8 @@ void thread_create(void (*func)()) {
             break;
     }
     t->state = RUNNABLE;
-    // YOUR CODE HERE
+    t->context.ra = (uint64)func;                   // 设定函数返回地址
+    t->context.sp = (uint64)t->stack + STACK_SIZE;  // 设定栈顶
 }
 
 void thread_yield(void) {
