@@ -71,3 +71,19 @@ uint64 sys_uptime(void) {
     release(&tickslock);
     return xticks;
 }
+
+// 通过在 proc 结构中使用一个新变量来记住其参数，从而实现新的系统调用
+uint64 sys_trace(void) {
+
+    int tracing_mask;
+    argint(0, &tracing_mask);
+    struct proc *p = myproc();
+    p->tracing_mask = tracing_mask;
+    return 0;
+}
+
+uint64 sys_sysinfo(void) {
+    uint64 sys_info;
+    argaddr(0, &sys_info);
+    return sysinfo(sys_info);
+}

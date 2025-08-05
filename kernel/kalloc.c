@@ -41,7 +41,7 @@ void freerange(void *pa_start, void *pa_end) {
 // initializing the allocator; see kinit above.)
 void kfree(void *pa) {
     struct run *r;
-
+    // 页面对齐、地址合法性
     if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
         panic("kfree");
 
@@ -51,6 +51,7 @@ void kfree(void *pa) {
     r = (struct run *)pa;
 
     acquire(&kmem.lock);
+    // 插入到链表头部
     r->next = kmem.freelist;
     kmem.freelist = r;
     release(&kmem.lock);
@@ -63,12 +64,25 @@ void *kalloc(void) {
     struct run *r;
 
     acquire(&kmem.lock);
-    r = kmem.freelist;
-    if (r)
-        kmem.freelist = r->next;
+    r = kmem.freelist;           // 如果没有空闲页面，r = NULL
+    if (r)                       // 检查是否还有空闲页面
+        kmem.freelist = r->next; // 只有当r不为NULL时才更新
     release(&kmem.lock);
 
-    if (r)
-        memset((char *)r, 5, PGSIZE); // fill with junk
-    return (void *)r;
+    if (r) // 只有成功分配才填充内存
+        memset((char *)r, 5, PGSIZE);
+    return (void *)r; // 返回NULL表示分配失败
+}
+
+uint64 get_freemem() {
+    struct run *r;
+    uint64 free_mem = 0;
+    acquire(&kmem.lock);
+    r = kmem.freelist;
+    while (r) {
+        free_mem += PGSIZE;
+        r = r->next;
+    }
+    release(&kmem.lock);
+    return free_mem;
 }
